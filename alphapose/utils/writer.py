@@ -8,6 +8,9 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 
+import matplotlib.pyplot as plt
+import pandas as pd
+
 from alphapose.utils.transforms import get_func_heatmap_to_coord
 from alphapose.utils.pPose_nms import pose_nms, write_json
 
@@ -62,7 +65,40 @@ class DataWriter():
         return self
 
     def update(self):
+        ####
+        person_height = 165
+        frame_offset = 20
+        max_diff_angle = 15
+        max_diff_distance = 10
+        N_angle = 23
+        N_distance = 20
+        #
+        frames = []
+        ground_points = []
+        head_points = []
         final_result = []
+        final_angles = {'Frame': []}
+        final_min_angles = {'Frame': []}
+        final_max_angles = {'Frame': []}
+        final_distances = {'Frame': []}
+        final_min_distances = {'Frame': []}
+        final_max_distances = {'Frame': []}
+        #
+        for i in range(1, N_angle + 1):
+            final_angles['Angle_'+str(i)] = []
+            final_min_angles['Angle_' + str(i)] = []
+            final_max_angles['Angle_' + str(i)] = []
+        for i in range(1, N_distance+1):
+            final_distances['Distance_'+str(i)] = []
+            final_min_distances['Distance_'+str(i)] = []
+            final_max_distances['Distance_'+str(i)] = []
+        #
+        frame = 0
+        min_angle = 180
+        max_angle = 0
+        min_distance = person_height + 100
+        max_distance = 0
+        #####
         norm_type = self.cfg.LOSS.get('NORM_TYPE', None)
         hm_size = self.cfg.DATA_PRESET.HEATMAP_SIZE
         if self.save_video:
@@ -146,9 +182,142 @@ class DataWriter():
                     else:
                         from alphapose.utils.vis import vis_frame
                     img = vis_frame(orig_img, result, self.opt)
-                    self.write_image(img, im_name, stream=stream if self.save_video else None)
+                    #####
+                    frame += 1
+                    if frame <= frame_offset:
+                        ground_point, head_point = self.calc_bound_points(result, vis_thres=0.4)
+                        if ground_point is not None:
+                            ground_points.append(ground_point)
+                            x_point = [x for x, _ in ground_points]
+                            y_point = [y for _, y in ground_points]
+                            ground_point = (int(np.average(x_point)), int(np.average(y_point)))
+                        if head_point is not None:
+                            head_points.append(head_point)
+                            x_point = [x for x, _ in head_points]
+                            y_point = [y for _, y in head_points]
+                            head_point = (int(np.average(x_point)), int(np.average(y_point)))
+                        if ground_point is not None and head_point is not None:
+                            dist_height = np.linalg.norm(np.array(head_point) - np.array(ground_point))
+                            height_ratio = person_height / (dist_height + 1e-6)
+                        else:
+                            height_ratio = 0
 
-    def write_image(self, img, im_name, stream=None):
+                    distances = self.calc_distances(result, ground_point, head_point,
+                                                    height_ratio, vis_thres=0.4)
+                    angles = self.calc_angles(result, vis_thres=0.4)
+                    frames.append(frame)
+                    final_angles['Frame'].append(frame)
+                    final_min_angles['Frame'].append(frame)
+                    final_max_angles['Frame'].append(frame)
+                    final_distances['Frame'].append(frame)
+                    final_min_distances['Frame'].append(frame)
+                    final_max_distances['Frame'].append(frame)
+                    ##
+                    for angle_name, angle in angles.items():
+                        angle = int(angle)
+                        if angle < 0 and frame > frame_offset:
+                            angle = final_angles[angle_name][frame-2]
+                        ##
+
+                        final_angles[angle_name].append(angle)
+                        ##
+                        if frame <= frame_offset:
+                            if angle >= 0 and angle < min_angle:
+                                final_min_angles[angle_name].append(angle)
+                            else:
+                                final_min_angles[angle_name].append(min_angle)
+                            if angle >= 0 and angle > max_angle:
+                                final_max_angles[angle_name].append(angle)
+                            else:
+                                final_max_angles[angle_name].append(max_angle)
+                        else:
+                            previous_min_angle = final_min_angles[angle_name][frame-2]
+                            previous_max_angle = final_max_angles[angle_name][frame-2]
+                            diff_angle = abs(final_angles[angle_name][frame-1] - final_angles[angle_name][frame-2])
+                            if angle >=0 and angle < previous_min_angle and diff_angle < max_diff_angle:
+                                final_min_angles[angle_name].append(angle)
+                            else:
+                                final_min_angles[angle_name].append(previous_min_angle)
+                            if angle >=0 and angle > previous_max_angle and diff_angle < max_diff_angle:
+                                final_max_angles[angle_name].append(angle)
+                            else:
+                                final_max_angles[angle_name].append(previous_max_angle)
+                        ##
+                        plt.figure()
+                        plt.plot(frames[frame_offset+1:], final_angles[angle_name][frame_offset+1:])
+                        plt.plot(frames[frame_offset+1:], final_min_angles[angle_name][frame_offset+1:], linestyle='--', dashes=(5, 3))
+                        plt.plot(frames[frame_offset+1:], final_max_angles[angle_name][frame_offset+1:], linestyle='--', dashes=(5, 3))
+                        plt.xlabel('Frames')
+                        plt.ylabel('Angle (degree)')
+                        plt.title(angle_name)
+                        plt.grid(True)
+                        plt.savefig(os.path.join(self.opt.outputpath_plot, angle_name+".jpg"))
+                        plt.close()
+                    ##
+                    for distance_name, distance in distances.items():
+                        distance = round(distance, 2)
+                        if distance < 0 and frame > frame_offset:
+                            distance = final_distances[distance_name][frame-2]
+                        ##
+                        final_distances[distance_name].append(distance)
+                        ##
+                        if frame <= frame_offset:
+                            if distance >= 0 and distance < min_distance:
+                                final_min_distances[distance_name].append(distance)
+                            else:
+                                final_min_distances[distance_name].append(min_distance)
+                            if distance >= 0 and distance > max_distance:
+                                final_max_distances[distance_name].append(distance)
+                            else:
+                                final_max_distances[distance_name].append(max_distance)
+                        else:
+                            previous_min_distance = final_min_distances[distance_name][frame-2]
+                            previous_max_distance = final_max_distances[distance_name][frame-2]
+                            diff_distance = abs(final_distances[distance_name][frame - 1] -
+                                                final_distances[distance_name][frame - 2])
+                            if distance_name is 'Distance_10' or distance_name is 'Distance_11':
+                                diff_distance *= 100
+                            if distance >=0 and distance < previous_min_distance and diff_distance < max_diff_distance:
+                                final_min_distances[distance_name].append(distance)
+                            else:
+                                final_min_distances[distance_name].append(previous_min_distance)
+                            if distance >=0 and distance > previous_max_distance and diff_distance < max_diff_distance:
+                                final_max_distances[distance_name].append(distance)
+                            else:
+                                final_max_distances[distance_name].append(previous_max_distance)
+                        ##
+                        plt.figure()
+                        plt.plot(frames[frame_offset+1:], final_distances[distance_name][frame_offset+1:])
+                        plt.plot(frames[frame_offset+1:], final_min_distances[distance_name][frame_offset+1:], linestyle='--', dashes=(5, 3))
+                        plt.plot(frames[frame_offset+1:], final_max_distances[distance_name][frame_offset+1:], linestyle='--', dashes=(5, 3))
+                        plt.xlabel('Frames')
+                        plt.ylabel('Distance (cm)')
+                        plt.title(distance_name)
+                        plt.grid(True)
+                        plt.savefig(os.path.join(self.opt.outputpath_plot, distance_name+".jpg"))
+                        plt.close()
+                    ##
+                    df_angle = pd.DataFrame.from_dict(final_angles)
+                    df_min_angle = pd.DataFrame.from_dict(final_min_angles)
+                    df_max_angle = pd.DataFrame.from_dict(final_max_angles)
+                    with pd.ExcelWriter(os.path.join(self.opt.outputpath_plot,"Angles.xlsx")) as writer:
+                        df_angle.to_excel(writer, sheet_name='Angles', index=False)
+                        df_min_angle.to_excel(writer, sheet_name='Min_Angles', index=False)
+                        df_max_angle.to_excel(writer, sheet_name='Max_Angles', index=False)
+                    ##
+                    df_distance = pd.DataFrame.from_dict(final_distances)
+                    df_min_distance = pd.DataFrame.from_dict(final_min_distances)
+                    df_max_distance = pd.DataFrame.from_dict(final_max_distances)
+                    with pd.ExcelWriter(os.path.join(self.opt.outputpath_plot,"Distances.xlsx")) as writer:
+                        df_distance.to_excel(writer, sheet_name='Distances', index=False)
+                        df_min_distance.to_excel(writer, sheet_name='Min_Distances', index=False)
+                        df_max_distance.to_excel(writer, sheet_name='Max_Distances', index=False)
+                    #########
+                    self.write_image(img, im_name, stream=stream if self.save_video else None, frame=frame)
+
+
+    def write_image(self, img, im_name, stream=None, frame=1):
+        img = cv2.putText(img, f'frame: {frame}', (20,20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 2)
         if self.opt.vis:
             cv2.imshow("AlphaPose Demo", img)
             cv2.waitKey(30)
@@ -206,3 +375,173 @@ class DataWriter():
         else:
             print("Unknow video format {}, will use .mp4 instead of it".format(ext))
             return cv2.VideoWriter_fourcc(*'mp4v'), '.mp4'
+
+
+    def calc_angles(self, im_res, vis_thres=0.4):
+        def find_angle(p1, p2, p3):
+            a = np.array(p1)
+            b = np.array(p2)
+            c = np.array(p3)
+            ba = a - b
+            bc = c - b
+            cosine_angle = np.dot(ba, bc) / (np.linalg.norm(ba) * np.linalg.norm(bc)+1e-9)
+            angle = np.arccos(cosine_angle) * (180 / np.pi)
+            return angle
+
+        kp_num = len(im_res['result'][0]['keypoints'])
+        if kp_num == 26:
+            angle_vertices = {
+                              'Angle_1':  (17, 18, 19), 'Angle_2':  (0, 18, 19),
+                              'Angle_3':  (18, 5, 7),   'Angle_4':  (18, 6, 8),
+                              'Angle_5':  (5, 7, 9),    'Angle_6':  (6, 8, 10),
+                              'Angle_7':  (10, 18, 9),  'Angle_8':  (19, 11, 13),
+                              'Angle_9':  (19, 12, 14), 'Angle_10': (12, 19, 11),
+                              'Angle_11': (11, 13, 15), 'Angle_12': (12, 14, 16),
+                              'Angle_13': (16, 19, 15), 'Angle_14': (20, 24, 15),
+                              'Angle_15': (21, 25, 16), 'Angle_16': (5, 11, 13),
+                              'Angle_17': (6, 12, 14),  'Angle_18': (11, 5, 7),
+                              'Angle_19': (12, 6, 8),   'Angle_20': (0, 18, 5),
+                              'Angle_21': (0, 18, 6),   'Angle_22': (18, 19, 24),
+                              'Angle_23': (18, 19, 25),
+                              }
+
+        else:
+            raise NotImplementedError
+
+        for human in im_res['result']:
+            part_angle = {}
+            kp_preds = human['keypoints']
+            kp_scores = human['kp_score']
+
+            # Valid keypoints
+            for n in range(kp_scores.shape[0]):
+                if kp_scores[n] <= vis_thres:
+                    continue
+                cor_x, cor_y = int(kp_preds[n, 0]), int(kp_preds[n, 1])
+                part_angle[n] = (cor_x, cor_y)
+
+            # Calc angles
+            angles = {}
+            for angle_name, (start_p, center_p, end_p) in angle_vertices.items():
+                if start_p in part_angle and end_p in part_angle and center_p in part_angle:
+                    start_xy = part_angle[start_p]
+                    center_xy = part_angle[center_p]
+                    end_xy = part_angle[end_p]
+                    angle = find_angle(start_xy, center_xy, end_xy)
+                    angles[angle_name] = angle
+                else:
+                    angles[angle_name] = -10
+
+        return angles
+
+
+    def calc_bound_points(self, im_res, vis_thres=0.4):
+        kp_num = len(im_res['result'][0]['keypoints'])
+        if kp_num == 26:
+            ground_vertices = [24, 25, 20, 21]
+            head_vertices = [17]
+        else:
+            raise NotImplementedError
+        for human in im_res['result']:
+            ground_points = {}
+            head_points = {}
+            kp_preds = human['keypoints']
+            kp_scores = human['kp_score']
+
+            # Valid keypoints
+            for n in range(kp_scores.shape[0]):
+                if kp_scores[n] <= vis_thres:
+                    continue
+                cor_x, cor_y = int(kp_preds[n, 0]), int(kp_preds[n, 1])
+                if n in head_vertices:
+                    head_points[n] = (cor_x, cor_y)
+                elif n in ground_vertices:
+                    ground_points[n] = (cor_x, cor_y)
+
+            # Calc bound points
+            if len(ground_points) == 0:
+                ground_point = None
+            else:
+                x_points = [x for x,_ in ground_points.values()]
+                y_points = [y for _,y in ground_points.values()]
+                ground_point = (np.average(x_points), np.average(y_points))
+
+            if len(head_points) == 0:
+                head_point = None
+            else:
+                x_points = [x for x,_ in head_points.values()]
+                y_points = [y for _,y in head_points.values()]
+                head_point = (np.average(x_points), np.average(y_points))
+
+            return ground_point, head_point
+
+
+    def calc_distances(self, im_res, ground_point, head_point, height_ratio, vis_thres=0.4):
+        if ground_point is None:
+            ground_point = (-10, -10)
+        if head_point is None:
+            head_point = (-10, -10)
+
+        def find_distance(p1, p2):
+            a = np.array(p1)
+            b = np.array(p2)
+            ba = a - b
+            distance = np.linalg.norm(ba)
+            return distance
+
+        kp_num = len(im_res['result'][0]['keypoints'])
+        if kp_num == 26:
+            distance_vertices = {
+                              'Distance_1':  (20, 26),   'Distance_2':  (21, 26),
+                              'Distance_3':  (24, 26),   'Distance_4':  (25, 26),
+                              'Distance_5':  (20, 25),   'Distance_6':  (21, 24),
+                              'Distance_7':  (24, 25),   'Distance_8':  (24, 11),
+                              'Distance_9':  (25, 12),   'Distance_10': (17, 26),
+                              'Distance_11': (17, 26),   'Distance_12': (9, 20),
+                              'Distance_13': (10, 21),   'Distance_14': (9, 0),
+                              'Distance_15': (10, 0),    'Distance_16': (9, 10),
+                              'Distance_17': (7, 3),     'Distance_18': (8, 4),
+                              'Distance_19': (26, 17),   'Distance_20': (17, 27),
+                              }
+
+        else:
+            raise NotImplementedError
+
+        for human in im_res['result']:
+            part_distance = {}
+            kp_preds = human['keypoints']
+            kp_scores = human['kp_score']
+
+            # Valid keypoints
+            for n in range(kp_scores.shape[0]):
+                if kp_scores[n] <= vis_thres:
+                    continue
+                cor_x, cor_y = int(kp_preds[n, 0]), int(kp_preds[n, 1])
+                part_distance[n] = (cor_x, cor_y)
+            part_distance[26] = ground_point
+            part_distance[27] = head_point
+
+            # Calc distances
+            distances = {}
+            for distance_name, (start_p, end_p) in distance_vertices.items():
+                if start_p in part_distance and end_p in part_distance:
+                    start_xy = part_distance[start_p]
+                    end_xy = part_distance[end_p]
+                    distance = find_distance(start_xy, end_xy)
+                    if end_p == 26:
+                        start_y = part_distance[start_p][1]
+                        end_y = part_distance[end_p][1]
+                        distance = abs(end_y - start_y)
+                    distances[distance_name] = distance * height_ratio
+                else:
+                    distances[distance_name] = -10
+            ##
+            distances['Distance_10'] = (2*distances['Distance_5']) / (distances['Distance_10']+1e-6)
+            distances['Distance_11'] = (2*distances['Distance_6']) / (distances['Distance_11']+1e-6)
+
+        return distances
+
+
+
+
+

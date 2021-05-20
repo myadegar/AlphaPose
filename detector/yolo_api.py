@@ -13,10 +13,10 @@ import platform
 import torch
 import numpy as np
 
-from yolo.preprocess import prep_image, prep_frame
-from yolo.darknet import Darknet
-from yolo.util import unique
-from yolo.bbox import bbox_iou
+from detector.yolo.preprocess import prep_image, prep_frame
+from detector.yolo.darknet import Darknet
+from detector.yolo.util import unique
+from detector.yolo.bbox import bbox_iou
 
 from detector.apis import BaseDetector
 
@@ -33,8 +33,8 @@ class YOLODetector(BaseDetector):
 
         self.detector_cfg = cfg
         self.detector_opt = opt
-        self.model_cfg = cfg.get('CONFIG', 'detector/yolo/cfg/yolov3-spp.cfg')
-        self.model_weights = cfg.get('WEIGHTS', 'detector/yolo/data/yolov3-spp.weights')
+        self.model_cfg = cfg.get('CONFIG', '/detector/yolo/cfg/yolov3-spp.cfg')
+        self.model_weights = cfg.get('WEIGHTS', '/detector/yolo/data/yolov3-spp.weights')
         self.inp_dim = cfg.get('INP_DIM', 608)
         self.nms_thres = cfg.get('NMS_THRES', 0.6)
         self.confidence = 0.3 if (False if not hasattr(opt, 'tracking') else opt.tracking) else cfg.get('CONFIDENCE', 0.05)

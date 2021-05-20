@@ -115,3 +115,7 @@ tmp/
 exp/json
 tmp_*/
 example/res/
+new_example/
+result/
+pretrained_models/
+detector/yolo/data/

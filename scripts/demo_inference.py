@@ -24,10 +24,10 @@ from alphapose.utils.writer import DataWriter
 
 """----------------------------- Demo options -----------------------------"""
 parser = argparse.ArgumentParser(description='AlphaPose Demo')
-parser.add_argument('--cfg', type=str, required=True,
-                    help='experiment configure file name')
-parser.add_argument('--checkpoint', type=str, required=True,
-                    help='checkpoint file name')
+parser.add_argument('--cfg', type=str, required=False,
+                    help='experiment configure file name', default='../configs/coco/resnet/256x192_res50_lr1e-3_1x.yaml')
+parser.add_argument('--checkpoint', type=str, required=False,
+                    help='checkpoint file name', default='../pretrained_models/fast_res50_256x192.pth')
 parser.add_argument('--sp', default=False, action='store_true',
                     help='Use single process for pytorch')
 parser.add_argument('--detector', dest='detector',
@@ -35,20 +35,20 @@ parser.add_argument('--detector', dest='detector',
 parser.add_argument('--detfile', dest='detfile',
                     help='detection result file', default="")
 parser.add_argument('--indir', dest='inputpath',
-                    help='image-directory', default="")
+                    help='image-directory', default="../examples/demo/")
 parser.add_argument('--list', dest='inputlist',
                     help='image-list', default="")
 parser.add_argument('--image', dest='inputimg',
                     help='image-name', default="")
 parser.add_argument('--outdir', dest='outputpath',
-                    help='output-directory', default="examples/res/")
+                    help='output-directory', default="../examples/res/")
 parser.add_argument('--save_img', default=False, action='store_true',
                     help='save result as image')
-parser.add_argument('--vis', default=False, action='store_true',
+parser.add_argument('--vis', default=True, action='store_true',
                     help='visualize image')
-parser.add_argument('--showbox', default=False, action='store_true',
+parser.add_argument('--showbox', default=True, action='store_true',
                     help='visualize human bbox')
-parser.add_argument('--profile', default=False, action='store_true',
+parser.add_argument('--profile', default=True, action='store_true',
                     help='add speed profiling at screen output')
 parser.add_argument('--format', type=str,
                     help='save in the format of cmu or coco or openpose, option: coco/cmu/open')
@@ -66,17 +66,17 @@ parser.add_argument('--qsize', type=int, dest='qsize', default=1024,
                     help='the length of result buffer, where reducing it will lower requirement of cpu memory')
 parser.add_argument('--flip', default=False, action='store_true',
                     help='enable flip testing')
-parser.add_argument('--debug', default=False, action='store_true',
+parser.add_argument('--debug', default=True, action='store_true',
                     help='print detail information')
 """----------------------------- Video options -----------------------------"""
 parser.add_argument('--video', dest='video',
-                    help='video-name', default="")
+                    help='video-name', default="../examples/demo/test.mp4 ")
 parser.add_argument('--webcam', dest='webcam', type=int,
                     help='webcam number', default=-1)
 parser.add_argument('--save_video', dest='save_video',
-                    help='whether to save rendered video', default=False, action='store_true')
+                    help='whether to save rendered video', default=True, action='store_true')
 parser.add_argument('--vis_fast', dest='vis_fast',
-                    help='use fast rendering', action='store_true', default=False)
+                    help='use fast rendering', action='store_true', default=True)
 """----------------------------- Tracking options -----------------------------"""
 parser.add_argument('--pose_flow', dest='pose_flow',
                     help='track humans in video with PoseFlow', action='store_true', default=False)

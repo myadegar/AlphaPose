@@ -42,7 +42,7 @@ def vis_frame_fast(frame, im_res, opt, format='coco'):
     '''
     kp_num = 17
     if len(im_res['result']) > 0:
-    	kp_num = len(im_res['result'][0]['keypoints'])
+        kp_num = len(im_res['result'][0]['keypoints'])
     if kp_num == 17:
         if format == 'coco':
             l_pair = [
